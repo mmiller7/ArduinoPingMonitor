@@ -46,8 +46,8 @@
 
 #define ENABLE_SERIAL //Uncomment to enable serial
 #define ENABLE_LCD    //Uncomment to enable LCD
-//#define ETIME_CHECK   //Uncomment to print eTime in loop
-//#define RAM_CHECK     //Uncomment to print free RAM in loop
+#define ETIME_CHECK   //Uncomment to print eTime in loop
+#define RAM_CHECK     //Uncomment to print free RAM in loop
 
 #define LCD_DELAY 2000 //mS to wait for info messages on LCD
 
@@ -274,8 +274,8 @@ void loop() {
   //Ping and store stats
   #ifdef ENABLE_LCD
   lcd.setCursor(0,1);
-  lcd.cursor();
-  //lcd.blink();
+  //lcd.cursor();
+  lcd.blink();
   #endif
   gatewayPings.setBool( currentPingNum, !doPing(Ethernet.gatewayIP()) );
   
@@ -290,8 +290,8 @@ void loop() {
   secondAddrPings.setBool( currentPingNum, !doPing(secondPingAddr) );
   
   #ifdef ENABLE_LCD
-  lcd.noCursor();
-  //lcd.noBlink();
+  //lcd.noCursor();
+  lcd.noBlink();
   #endif
   
   //increment for next loop
@@ -459,7 +459,25 @@ void loop() {
   while(millis()-stime < PROCESSING_LOOP_INTERVAL)
   {
     //Hurry up and wait...nothing more to do
+
+    //So we know it isn't dead, bounce the cursor
+    #ifdef ENABLE_LCD
+    if((millis()/500)%2 == 0)
+    {
+      lcd.setCursor(15,0);
+    }
+    else
+    {
+      lcd.setCursor(15,1);
+    }
+    lcd.cursor();
+    //lcd.noBlink();
+    #endif
   }
+  #ifdef ENABLE_LCD
+  lcd.noCursor();
+  //lcd.noBlink();
+  #endif
   
 }
 
@@ -483,7 +501,7 @@ inline boolean doPing(IPAddress pingAddr)
       {
         Serial.print("Couldn't even send our ping request?? Status: ");
         Serial.println((int)echoReply.status);
-        //return false;
+        return false;
       }
     
       //Wait for the PING
@@ -548,7 +566,7 @@ inline boolean doPing(IPAddress pingAddr)
   }
 }
 
-inline int getAvgBool(BoolBits data)
+inline int getAvgBool(BoolBits& data)
 {
   if(firstRun)
   {
