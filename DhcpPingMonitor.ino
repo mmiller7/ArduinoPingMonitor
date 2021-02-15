@@ -7,10 +7,11 @@
  * - Arduino Uno (or similar)
  * - W5100 Ethernet Shield
  * - Ethernet Library 1.x (ICMP Ping is not 2.0 compatible)
- * - ICMP Ping library (https://github.com/BlakeFoster/Arduino-Pingv)
+ * - ICMPPing library (https://github.com/BlakeFoster/Arduino-Pingv)
+ * - BoolBits Library (https://github.com/mmiller7/BoolBits)
  * - Optional LCD (suggest HiLetgo 1602 LCD Keypad Shield 1602 LCD)
- *   NOTE: Must not conflict with Ethernet Shield pins
- *   NOTE: the suggested shield, pin 10 conflicts with the Ethernet Shield, but can be removed
+ *     NOTE: Must not conflict with Ethernet Shield pins
+ *     NOTE: the suggested shield, pin 10 conflicts with the Ethernet Shield, but can be removed
  * 
  * Circuit:
  * Ethernet shield attached to pins 10, 11, 12, 13
@@ -53,6 +54,7 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <ICMPPing.h>
+#include <BoolBits.h>
 
 #ifdef ENABLE_LCD
 #include <LiquidCrystal.h>
@@ -94,9 +96,6 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 //Functiton declarations
 inline boolean doPing(IPAddress pingAddr);
-inline void setBool(byte data[], int pos, boolean value);
-inline boolean getBool(byte data[], int pos);
-inline int getAvgBool(byte data[], int startPos, int endPos);
 inline int getAvgBool(byte data[]);
 inline void currentPingNumInc();
 inline void serialPrintIpAddr(IPAddress ipAddr);
@@ -104,24 +103,11 @@ inline void lcdPrintIpAddr(IPAddress ipAddr);
 inline byte getLcdButton();
 
 //Arrays to store ping data
-#define PING_BYTE_MAX ( (int) ((PING_MAX_COUNT/8.0)+0.5) ) //"rounded up" number of bytes
-byte gatewayPings[PING_BYTE_MAX];
-byte firstAddrPings[PING_BYTE_MAX];
-byte secondAddrPings[PING_BYTE_MAX];
+BoolBits gatewayPings(PING_MAX_COUNT);
+BoolBits firstAddrPings(PING_MAX_COUNT);
+BoolBits secondAddrPings(PING_MAX_COUNT);
 int currentPingNum=0; //to keep track of where we are in the array
 boolean firstRun=true;
-
-//Bit-mask for get/set bit access functitons
-static byte BIT_MASK[8] = {
-                 0b00000001,
-                 0b00000010,
-                 0b00000100,
-                 0b00001000,
-                 0b00010000,
-                 0b00100000,
-                 0b01000000,
-                 0b10000000
-               };
                
 //Constants for keypad on LCD
 #define BUTTON_INPUT_PIN A0
@@ -165,17 +151,8 @@ void setup() {
   lcd.begin(16,2);
   lcd.setCursor(3,0);
   lcd.print(F("Booting..."));
-  delay(1000);
   #endif
   
-  // Initialize arrays
-  for(int x=0; x < PING_BYTE_MAX; x++)
-  {
-    gatewayPings[x]=0;
-    firstAddrPings[x]=0;
-    secondAddrPings[x]=0;
-  }
-
 
   // Initialize Ethernet connection:
   #ifdef ENABLE_LCD
@@ -300,17 +277,17 @@ void loop() {
   lcd.cursor();
   //lcd.blink();
   #endif
-  setBool( gatewayPings,    currentPingNum, !doPing(Ethernet.gatewayIP()) );
+  gatewayPings.setBool( currentPingNum, !doPing(Ethernet.gatewayIP()) );
   
   #ifdef ENABLE_LCD
   lcd.setCursor(4,1);
   #endif
-  setBool( firstAddrPings,  currentPingNum, !doPing(firstPingAddr)        );
+  firstAddrPings.setBool( currentPingNum, !doPing(firstPingAddr) );
   
   #ifdef ENABLE_LCD
   lcd.setCursor(8,1);
   #endif
-  setBool( secondAddrPings, currentPingNum, !doPing(secondPingAddr)       );
+  secondAddrPings.setBool( currentPingNum, !doPing(secondPingAddr) );
   
   #ifdef ENABLE_LCD
   lcd.noCursor();
@@ -571,54 +548,15 @@ inline boolean doPing(IPAddress pingAddr)
   }
 }
 
-
-inline void setBool(byte data[], int pos, boolean value)
-{
-  int byte_pos=pos/8;
-  int bit_pos=pos%8;
-  
-  if(value)
-  {
-    data[byte_pos]=data[byte_pos]|BIT_MASK[bit_pos];
-  }
-  else
-  {
-    data[byte_pos]=data[byte_pos]&(~BIT_MASK[bit_pos]);
-  }
-}
-
-
-inline boolean getBool(byte data[], int pos)
-{
-  int byte_pos=pos/8;
-  int bit_pos=pos%8;
-  
-  return data[byte_pos]&BIT_MASK[bit_pos];
-}
-
-// Averages bits startPos (inclusive) thru endPos (exclusive)
-inline int getAvgBool(byte data[], int startPos, int endPos)
-{
-  int sum=0;
-  for(int x=startPos; x < endPos; x++)
-  {
-    if(getBool(data, x))
-    {
-      sum++;
-    }
-  }
-  return (sum * 100)/(endPos-startPos);
-}
-
-inline int getAvgBool(byte data[])
+inline int getAvgBool(BoolBits data)
 {
   if(firstRun)
   {
-    return getAvgBool(data, 0, currentPingNum);
+    return data.getAvgBool( 0, currentPingNum);
   }
   else
   {
-    return getAvgBool(data, 0, PING_MAX_COUNT);
+    return data.getAvgBool( 0, PING_MAX_COUNT);
   }
 }
 
