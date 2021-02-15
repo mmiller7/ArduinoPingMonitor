@@ -44,10 +44,12 @@
  *
  */
 
-#define ENABLE_SERIAL //Uncomment to enable serial
-#define ENABLE_LCD    //Uncomment to enable LCD
-#define ETIME_CHECK   //Uncomment to print eTime in loop
-#define RAM_CHECK     //Uncomment to print free RAM in loop
+#define ENABLE_SERIAL   //Uncomment to enable serial
+#define ENABLE_LCD      //Uncomment to enable LCD
+// Additional print information optional (requires ENABLE_SERIAL)
+//#define ETIME_CHECK     //Uncomment to print eTime in loop
+//#define RAM_CHECK       //Uncomment to print free RAM in loop
+//#define ENABLE_VERBOSE  //Uncomment to print extra PING stats
 
 #define LCD_DELAY 2000 //mS to wait for info messages on LCD
 
@@ -82,8 +84,10 @@ int secondAddrLoss=0;
 
 //Data for PING
 SOCKET pingSocket = 0;
-char buffer [256];
 ICMPPing ping(pingSocket, 1);
+#ifdef ENABLE_VERBOSE
+char buffer [256];
+#endif
 
 //Data for control loop
 long stime=0;
@@ -499,8 +503,14 @@ inline boolean doPing(IPAddress pingAddr)
       //Send the ping
       if (! ping.asyncStart(pingAddr, 1, echoReply))
       {
+        #ifdef ENABLE_SERIAL
+        #ifdef ENABLE_VERBOSE
         Serial.print("Couldn't even send our ping request?? Status: ");
         Serial.println((int)echoReply.status);
+        #endif
+        #endif
+
+        //If we can't send the ping, clearly it is lost
         return false;
       }
     
@@ -529,6 +539,7 @@ inline boolean doPing(IPAddress pingAddr)
   if (echoReply.status == SUCCESS)
   {
     #ifdef ENABLE_SERIAL
+    #ifdef ENABLE_VERBOSE
     sprintf(buffer,
             "Reply[%d] from: %d.%d.%d.%d: bytes=%d time=%ldms TTL=%d",
             echoReply.data.seq,
@@ -542,6 +553,7 @@ inline boolean doPing(IPAddress pingAddr)
 
     Serial.println(buffer);
     #endif
+    #endif
 
     #ifdef ETIME_CHECK
     Serial.print(F("About to return true: "));
@@ -553,8 +565,10 @@ inline boolean doPing(IPAddress pingAddr)
   else
   {
     #ifdef ENABLE_SERIAL
+    #ifdef ENABLE_VERBOSE
     sprintf(buffer, "Echo request failed; %d", echoReply.status);
     Serial.println(buffer);
+    #endif
     #endif
 
     #ifdef ETIME_CHECK
