@@ -24,7 +24,11 @@
  * LCD D5 pin to digital pin 5
  * LCD D6 pin to digital pin 6
  * LCD D7 pin to digital pin 7
- * Backlight control pin 10 (may be short thru transistor on some boards?)
+ * Backlight control pin 10 (when high, may be short thru transistor on some boards?)
+ * Suggested mod:
+ *    Cut off or desolder pin 10, put diode from pin 10 to pin 3 (stripe towards pin 3)
+ *    This eliminages the conflict with Ethernet shield and fixes the short
+ *    thru the diode when set to "high" for backlight on, and is PWM.
  * Keypad Buttons pin A0
  * Idle - 1023
  * Select - 720
@@ -72,9 +76,9 @@ IPAddress firstPingAddr(1,1,1,1); // ip address to ping
 IPAddress secondPingAddr(8,8,8,8); // ip address to ping
 #define PING_MAX_COUNT 100 // Number of pings for rolling average
 
-#define ICMP_PING_TIMEOUT    800
+#define ICMP_PING_TIMEOUT    900
 #define NUMBER_OF_IPS        3
-#define PROCESSING_LOOP_TIME 600
+#define PROCESSING_LOOP_TIME 300
 #define PROCESSING_LOOP_INTERVAL ((ICMP_PING_TIMEOUT * NUMBER_OF_IPS) + PROCESSING_LOOP_TIME) //The interval for pings - must be number of IPs * timeout + time for overhead processing
 
 //Data for PING
@@ -96,17 +100,21 @@ byte ethernetStatus=0;
 //LCD pins
 #ifdef ENABLE_LCD
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+#define LCD_BACKLIGHT_PIN 3
+#define LCD_BACKLIGHT_BRIGHTNESS 64
 #endif
 
 //Functiton declarations
-inline boolean doPing(IPAddress pingAddr);
+inline void ethernetRenewMaintenance();
+inline boolean doPing(IPAddress pingAddr, int x, int y);
 inline int getAvgBool(byte data[]);
 inline void currentPingNumInc();
 inline void serialPrintIpAddr(IPAddress ipAddr);
 inline void lcdPrintIpAddr(IPAddress ipAddr);
+inline void lcdClockSpin(int x, int y);
 inline byte getLcdButton();
 
-//Arrays to store ping data
+//Structures to store ping data
 BoolBits gatewayPings(PING_MAX_COUNT);
 BoolBits firstAddrPings(PING_MAX_COUNT);
 BoolBits secondAddrPings(PING_MAX_COUNT);
@@ -138,10 +146,147 @@ int availableMemory() {
 #endif
 #endif
 
+inline void buildCustomChars()
+{
+  //Custom Characters
+  byte smallCheck[8] = {
+                     B00000,
+                     B00000,
+                     B00000,
+                     B00000,
+                     B00010,
+                     B10100,
+                     B01000
+                   };
+  lcd.createChar(0,smallCheck);
+  #define LCD_CHAR_SMALL_CHECK byte(0)
+  
+  byte smallX[8] = {
+                     B00000,
+                     B00000,
+                     B00000,
+                     B00000,
+                     B10100,
+                     B01000,
+                     B10100
+                   };
+  lcd.createChar(1,smallX);
+  #define LCD_CHAR_SMALL_X byte(1)
+  
+  byte hourglass[8] = {
+                     B11111,
+                     B11011,
+                     B01110,
+                     B00100,
+                     B01010,
+                     B10101,
+                     B11111
+                   };
+  lcd.createChar(2,hourglass);
+  #define LCD_CHAR_HOURGLASS byte(2)
+  
+  /*byte clock1[8] = {
+                     B00000,
+                     B01110,
+                     B10101,
+                     B10101,
+                     B10001,
+                     B01110,
+                     B00000
+                   };*/
+  byte clock1[8] = {
+                     B00000,
+                     B01010,
+                     B11011,
+                     B11011,
+                     B11111,
+                     B01110,
+                     B00000
+                   };
+  lcd.createChar(3,clock1);
+  #define LCD_CHAR_CLOCK1 byte(3)
+  
+  /*byte clock2[8] = {
+                     B00000,
+                     B01110,
+                     B10001,
+                     B10101,
+                     B10011,
+                     B01110,
+                     B00000
+                   };*/
+  byte clock2[8] = {
+                     B00000,
+                     B01110,
+                     B11111,
+                     B11011,
+                     B11101,
+                     B01110,
+                     B00000
+                   };
+  lcd.createChar(4,clock2);
+  #define LCD_CHAR_CLOCK2 byte(4)
+  
+  /*byte clock3[8] = {
+                     B00000,
+                     B01110,
+                     B10001,
+                     B10101,
+                     B11001,
+                     B01110,
+                     B00000
+                   };*/
+  byte clock3[8] = {
+                     B00000,
+                     B01110,
+                     B11111,
+                     B11011,
+                     B10111,
+                     B1110,
+                     B00000
+                   };
+  lcd.createChar(5,clock3);
+  #define LCD_CHAR_CLOCK3 byte(5)
+  
+  byte inversePercent[8] = {
+                     B11111,
+                     B10110,
+                     B11101,
+                     B11011,
+                     B10111,
+                     B01101,
+                     B11111
+                   };
+  lcd.createChar(6,inversePercent);
+  #define LCD_CHAR_INVERSE_PERCENT byte(6)
+  
+  byte inverseT[8] = {
+                     B11111,
+                     B10001,
+                     B11011,
+                     B11011,
+                     B11011,
+                     B11011,
+                     B11111
+                   };
+  lcd.createChar(7,inverseT);
+  #define LCD_CHAR_INVERSE_T byte(7)
+
+  
+  //#define DEBUG_LCD_CHARS  //Uncomment to Debug: print the characters to verify
+  #ifdef DEBUG_LCD_CHARS
+  lcd.setCursor(0,1);
+  for(int x=0; x < 8; x++)
+    lcd.write(byte(x));
+  delay(30000);
+  #endif//DEBUG_LCD_CHARS
+}
+
+
 
 void setup() {
   //Initialize hardware for LCD buttons
-  
+  pinMode(BUTTON_INPUT_PIN,INPUT);
   
   // Initialize serial
   #ifdef ENABLE_SERIAL
@@ -149,34 +294,54 @@ void setup() {
   delay(1000);
   Serial.println(F("Booting..."));
   #endif
+
+  #ifdef RAM_CHECK
+  #ifdef ENABLE_SERIAL
+  Serial.print(F("Start of setup - Free memory: "));
+  Serial.println(availableMemory());
+  Serial.println();
+  #endif
+  #endif
   
   // Initialize LCD
   #ifdef ENABLE_LCD
   lcd.begin(16,2);
   lcd.setCursor(3,0);
   lcd.print(F("Booting..."));
-  #endif
-  
+  // Backlight
+  pinMode(LCD_BACKLIGHT_PIN,OUTPUT);
+  analogWrite(LCD_BACKLIGHT_PIN,LCD_BACKLIGHT_BRIGHTNESS);
+  // Build custom chars
+  buildCustomChars();
+  // Display hour glass in corner during boot
+  lcd.setCursor(15,0);
+  lcd.write(LCD_CHAR_HOURGLASS);
+  #endif//ENABLE_LCD
 
   // Initialize Ethernet connection:
   #ifdef ENABLE_LCD
   lcd.setCursor(0,1);
-  //           1234567890123456
   lcd.print(F("Waiting for DHCP"));
   #endif
   #ifdef ENABLE_SERIAL
   Serial.println(F("Waiting for Network DHCP"));
   #endif
+  int dhcpTry=1;
   while (Ethernet.begin(mac) == 0)
   {
+    dhcpTry++;
     #ifdef ENABLE_SERIAL
-    Serial.println(F("Failed to configure Ethernet using DHCP, retrying..."));
+    Serial.print(F("Failed to configure Ethernet using DHCP, try "));
+    Serial.println(dhcpTry);
     #endif
     #ifdef ENABLE_LCD
     lcd.setCursor(0,1);
-    lcd.print(F("Retry: DHCP Fail"));
+    lcd.print(F("DHCP: Retry     "));
+    lcd.setCursor(12,1);
+    lcd.print(dhcpTry);
     #endif
   }
+
   
   
   #ifdef ENABLE_SERIAL
@@ -195,7 +360,6 @@ void setup() {
   delay(LCD_DELAY);
   #endif
 
-
   #ifdef ENABLE_SERIAL
   // Print gateway IP address:
   Serial.print(F("DHCP Gateway IP: "));
@@ -212,7 +376,6 @@ void setup() {
   delay(LCD_DELAY);
   #endif
   
-  
   #ifdef ENABLE_SERIAL
   // Print first test IP address:
   Serial.print(F("1st Test IP: "));
@@ -228,7 +391,6 @@ void setup() {
   lcdPrintIpAddr(firstPingAddr);
   delay(LCD_DELAY);
   #endif
-  
   
   #ifdef ENABLE_SERIAL
   // Print first test IP address:
@@ -247,6 +409,7 @@ void setup() {
   #endif
   
   
+  
   #ifdef ENABLE_SERIAL
   Serial.println();
   Serial.println(F("Starting tests..."));
@@ -263,42 +426,32 @@ void setup() {
   #endif
 
   ICMPPing::setTimeout(ICMP_PING_TIMEOUT);
+
+  #ifdef RAM_CHECK
+  #ifdef ENABLE_SERIAL
+  Serial.print(F("End of setup - Free memory: "));
+  Serial.println(availableMemory());
+  Serial.println();
+  #endif
+  #endif
 }
 
 
+
 void loop() {
-  //setup timekeeping variable
+  // Setup timekeeping variable
   stime=millis();
   
   #ifdef ETIME_CHECK
   Serial.println(F("Starting PING loop"));
   #endif
-  
 
-  //Ping and store stats
-  #ifdef ENABLE_LCD
-  lcd.setCursor(0,1);
-  //lcd.cursor();
-  lcd.blink();
-  #endif
-  gatewayPings.setBool( currentPingNum, !doPing(Ethernet.gatewayIP()) );
+  // Ping and store stats
+  gatewayPings.setBool( currentPingNum, !doPing(Ethernet.gatewayIP(), 2,1) );
+  firstAddrPings.setBool( currentPingNum, !doPing(firstPingAddr, 7,1) );
+  secondAddrPings.setBool( currentPingNum, !doPing(secondPingAddr, 11,1) );
   
-  #ifdef ENABLE_LCD
-  lcd.setCursor(4,1);
-  #endif
-  firstAddrPings.setBool( currentPingNum, !doPing(firstPingAddr) );
-  
-  #ifdef ENABLE_LCD
-  lcd.setCursor(8,1);
-  #endif
-  secondAddrPings.setBool( currentPingNum, !doPing(secondPingAddr) );
-  
-  #ifdef ENABLE_LCD
-  //lcd.noCursor();
-  lcd.noBlink();
-  #endif
-  
-  //increment for next loop
+  // Increment for next loop
   currentPingNumInc();
   
   #ifdef ETIME_CHECK
@@ -308,7 +461,7 @@ void loop() {
   #endif
   #endif
   
-  //Compute averages
+  // Compute averages
   gatewayAvgLoss=getAvgBool(gatewayPings);
   firstAddrLoss=getAvgBool(firstAddrPings);
   secondAddrLoss=getAvgBool(secondAddrPings);
@@ -321,7 +474,7 @@ void loop() {
   #endif
   
   
-  
+  // Print Stats
   #ifdef ENABLE_SERIAL
   Serial.print(F("Avg Loss Gateway "));
   serialPrintIpAddr(Ethernet.gatewayIP());
@@ -340,15 +493,18 @@ void loop() {
   Serial.print(F(": "));
   Serial.print(secondAddrLoss);
   Serial.println(F("%"));
+
+  // Make it look neater with blank line to separate loops
+  Serial.println();
   #endif
   
   #ifdef ENABLE_LCD
   lcd.setCursor(0,0);
   lcd.print(F("            %   "));
-  lcd.setCursor(0,1);
+  /*lcd.setCursor(0,1);
   //           100 100 100 100%
   //           1234567890123456
-  lcd.print(F("GW  IP1 IP2 LOSS"));
+  lcd.print(F("GW  IP1 IP2 LOSS"));*/
   lcd.setCursor(0,0);
   lcd.print(gatewayAvgLoss);
   lcd.setCursor(4,0);
@@ -364,6 +520,64 @@ void loop() {
   #endif
   #endif
   
+  ethernetRenewMaintenance();
+
+  #ifdef ETIME_CHECK
+  #ifdef ENABLE_SERIAL
+  Serial.print(F("Loop done in: "));
+  Serial.println(millis()-stime);
+  #endif
+  #endif
+  
+  #ifdef RAM_CHECK
+  #ifdef ENABLE_SERIAL
+  Serial.print(F("Free memory: "));
+  Serial.println(availableMemory());
+  Serial.println();
+  #endif
+  #endif
+
+  
+  //wait the remainder of seconds
+  //When pings fail, about 1.55 Seconds per ping
+  //100 pings at 6 seconds per is 10 minute average
+  while(millis()-stime < PROCESSING_LOOP_INTERVAL)
+  {
+    //Hurry up and wait...nothing more to do
+
+    //So we know it isn't dead, do something
+    #ifdef ENABLE_LCD
+    lcdClockSpin(15,0);
+    /*
+    //Bounce cursor
+    if((millis()/500)%2 == 0)
+    {
+      lcd.setCursor(15,0);
+    }
+    else
+    {
+      lcd.setCursor(15,1);
+    }
+    lcd.cursor();
+    //lcd.noBlink();
+    */
+    #endif
+  }
+  #ifdef ENABLE_LCD
+  // Blank over the clock
+  lcd.setCursor(15,0);
+  lcd.print(F(" "));
+  /*
+  //Turn off the cursor
+  lcd.noCursor();
+  //lcd.noBlink();
+  */
+  #endif 
+}
+
+
+inline void ethernetRenewMaintenance()
+{
   
   //handle ethernet renewing
   ethernetStatus=Ethernet.maintain();
@@ -437,61 +651,20 @@ void loop() {
       #endif
     }
   }
-
-
-  #ifdef ETIME_CHECK
-  #ifdef ENABLE_SERIAL
-  Serial.print(F("Loop done in: "));
-  Serial.println(millis()-stime);
-  #endif
-  #endif
-  
-  
-
-  #ifdef RAM_CHECK
-  #ifdef ENABLE_SERIAL
-  Serial.print(F("Free memory: "));
-  Serial.println(availableMemory());
-  Serial.println();
-  #endif
-  #endif
-
-  
-  //wait the remainder of seconds
-  //When pings fail, about 1.55 Seconds per ping
-  //100 pings at 6 seconds per is 10 minute average
-  while(millis()-stime < PROCESSING_LOOP_INTERVAL)
-  {
-    //Hurry up and wait...nothing more to do
-
-    //So we know it isn't dead, bounce the cursor
-    #ifdef ENABLE_LCD
-    if((millis()/500)%2 == 0)
-    {
-      lcd.setCursor(15,0);
-    }
-    else
-    {
-      lcd.setCursor(15,1);
-    }
-    lcd.cursor();
-    //lcd.noBlink();
-    #endif
-  }
-  #ifdef ENABLE_LCD
-  lcd.noCursor();
-  //lcd.noBlink();
-  #endif
-  
 }
 
-
 //Returns TRUE if success
-inline boolean doPing(IPAddress pingAddr)
+//Takes x, y for LCD status of ping
+inline boolean doPing(IPAddress pingAddr, int x, int y)
 {
   #ifdef ETIME_CHECK
   Serial.println(F("Starting doPing call"));
   long eTime=millis();
+  #endif
+
+  #ifdef ENABLE_LCD
+  lcd.setCursor(x,y);
+  lcd.write(LCD_CHAR_HOURGLASS);
   #endif
 
   //Prepare to save the result
@@ -511,6 +684,11 @@ inline boolean doPing(IPAddress pingAddr)
         #endif
 
         //If we can't send the ping, clearly it is lost
+        #ifdef ENABLE_LCD
+        lcd.setCursor(x,y);
+        lcd.write(LCD_CHAR_SMALL_X);
+        #endif
+    
         return false;
       }
     
@@ -518,6 +696,11 @@ inline boolean doPing(IPAddress pingAddr)
       while (! ping.asyncComplete(echoReply))
       {
         //Hurry up and wait...nothing more to do
+
+        //Spin the LCD clock icon
+        #ifdef ENABLE_LCD
+        lcdClockSpin(x,y);
+        #endif
       }
 
   /* End New code */ 
@@ -559,6 +742,11 @@ inline boolean doPing(IPAddress pingAddr)
     Serial.print(F("About to return true: "));
     Serial.println(millis()-eTime);
     #endif
+
+    #ifdef ENABLE_LCD
+    lcd.setCursor(x,y);
+    lcd.write(LCD_CHAR_SMALL_CHECK);
+    #endif
     
     return true;
   }
@@ -574,6 +762,11 @@ inline boolean doPing(IPAddress pingAddr)
     #ifdef ETIME_CHECK
     Serial.print(F("About to return false: "));
     Serial.println(millis()-eTime);
+    #endif
+        
+    #ifdef ENABLE_LCD
+    lcd.setCursor(x,y);
+    lcd.write(LCD_CHAR_SMALL_X);
     #endif
 
     return false;
@@ -631,6 +824,28 @@ inline void lcdPrintIpAddr(IPAddress ipAddr)
     }
   }
   #endif
+}
+
+inline void lcdClockSpin(int x, int y)
+{
+  #define SPIN_RATE 250
+  
+  if(millis()%SPIN_RATE == 0)
+  {
+    lcd.setCursor(x,y);
+    switch((millis()/SPIN_RATE)%3)
+    {
+      case 0:
+              lcd.write(LCD_CHAR_CLOCK1);
+              break;
+      case 1:
+              lcd.write(LCD_CHAR_CLOCK2);
+              break;
+      case 2:
+              lcd.write(LCD_CHAR_CLOCK3);
+              break;
+    }
+  }
 }
 
 inline byte getLcdButton()
