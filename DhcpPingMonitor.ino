@@ -74,17 +74,23 @@ byte mac[] = {
 //Addresses to PING
 IPAddress firstPingAddr(1,1,1,1); // ip address to ping
 IPAddress secondPingAddr(8,8,8,8); // ip address to ping
-#define PING_MAX_COUNT 100 // Number of pings for rolling average
+#define PING_MAX_COUNT 300 // Number of pings for rolling average
+// NOTE: 100 pings makes even 1% per ping
+//       100 pings, at 1 sec timeout and 3 IPs makes 300 sec loop or 5 min
+//       300 pings, at 1 sec timeout and 3 IPs makes 900 sec loop or 15 min
+//       600 pings, at 1 sec timeout and 3 IPs makes 1800 sec loop or 30 min
+//       1200 pings, at 1 sec timeout and 3 IPs makes 3600 sec loop or 1 hour
 
+//Timeouts
 #define ICMP_PING_TIMEOUT    900
 #define NUMBER_OF_IPS        3
 #define PROCESSING_LOOP_TIME 300
 #define PROCESSING_LOOP_INTERVAL ((ICMP_PING_TIMEOUT * NUMBER_OF_IPS) + PROCESSING_LOOP_TIME) //The interval for pings - must be number of IPs * timeout + time for overhead processing
 
 //Data for PING
-int gatewayAvgLoss=0;
-int firstAddrLoss=0;
-int secondAddrLoss=0;
+float gatewayAvgLoss=0;
+float firstAddrLoss=0;
+float secondAddrLoss=0;
 
 //Data for PING
 SOCKET pingSocket = 0;
@@ -108,6 +114,8 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 inline void ethernetRenewMaintenance();
 inline boolean doPing(IPAddress pingAddr, int x, int y);
 inline int getAvgBool(byte data[]);
+inline float getFloatAvgBool(byte data[]);
+inline void lcdPrintOneDecimal(float value);
 inline void currentPingNumInc();
 inline void serialPrintIpAddr(IPAddress ipAddr);
 inline void lcdPrintIpAddr(IPAddress ipAddr);
@@ -462,9 +470,9 @@ void loop() {
   #endif
   
   // Compute averages
-  gatewayAvgLoss=getAvgBool(gatewayPings);
-  firstAddrLoss=getAvgBool(firstAddrPings);
-  secondAddrLoss=getAvgBool(secondAddrPings);
+  gatewayAvgLoss=getFloatAvgBool(gatewayPings);
+  firstAddrLoss=getFloatAvgBool(firstAddrPings);
+  secondAddrLoss=getFloatAvgBool(secondAddrPings);
   
   #ifdef ETIME_CHECK
   #ifdef ENABLE_SERIAL
@@ -506,11 +514,32 @@ void loop() {
   //           1234567890123456
   lcd.print(F("GW  IP1 IP2 LOSS"));*/
   lcd.setCursor(0,0);
-  lcd.print(gatewayAvgLoss);
+  if(gatewayAvgLoss < 10)
+  {
+    lcdPrintOneDecimal(gatewayAvgLoss);
+  }
+  else
+  {
+    lcd.print(round(gatewayAvgLoss));
+  }
   lcd.setCursor(4,0);
-  lcd.print(firstAddrLoss);
+  if(firstAddrLoss < 10)
+  {
+    lcdPrintOneDecimal(firstAddrLoss);
+  }
+  else
+  {
+    lcd.print(round(firstAddrLoss));
+  }
   lcd.setCursor(8,0);
-  lcd.print(secondAddrLoss);
+  if(secondAddrLoss < 10)
+  {
+    lcdPrintOneDecimal(secondAddrLoss);
+  }
+  else
+  {
+    lcd.print(round(secondAddrLoss));
+  }
   #endif
   
   #ifdef ETIME_CHECK
@@ -783,6 +812,27 @@ inline int getAvgBool(BoolBits& data)
   {
     return data.getAvgBool( 0, PING_MAX_COUNT);
   }
+}
+
+inline float getFloatAvgBool(BoolBits& data)
+{
+  if(firstRun)
+  {
+    return data.getFloatAvgBool( 0, currentPingNum);
+  }
+  else
+  {
+    return data.getFloatAvgBool( 0, PING_MAX_COUNT);
+  }
+}
+
+inline void lcdPrintOneDecimal(float value)
+{    
+  int firstPart=(int)value;
+  int secondPart=round((value-firstPart)*10);
+  lcd.print(firstPart);
+  lcd.print(F("."));
+  lcd.print(secondPart);
 }
 
 inline void currentPingNumInc()
