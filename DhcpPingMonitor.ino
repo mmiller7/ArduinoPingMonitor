@@ -82,9 +82,9 @@ IPAddress secondPingAddr(8,8,8,8); // ip address to ping
 //       1200 pings, at 1 sec timeout and 3 IPs makes 3600 sec loop or 1 hour
 
 //Timeouts
-#define ICMP_PING_TIMEOUT    900
+#define ICMP_PING_TIMEOUT    950
 #define NUMBER_OF_IPS        3
-#define PROCESSING_LOOP_TIME 300
+#define PROCESSING_LOOP_TIME 150
 #define PROCESSING_LOOP_INTERVAL ((ICMP_PING_TIMEOUT * NUMBER_OF_IPS) + PROCESSING_LOOP_TIME) //The interval for pings - must be number of IPs * timeout + time for overhead processing
 
 //Data for PING
@@ -121,6 +121,7 @@ inline void serialPrintIpAddr(IPAddress ipAddr);
 inline void lcdPrintIpAddr(IPAddress ipAddr);
 inline void lcdClockSpin(int x, int y);
 inline byte getLcdButton();
+inline void alarm(int timeMs);
 
 //Structures to store ping data
 BoolBits gatewayPings(PING_MAX_COUNT);
@@ -348,6 +349,7 @@ void setup() {
     lcd.setCursor(12,1);
     lcd.print(dhcpTry);
     #endif
+    alarm(100);
   }
 
   
@@ -425,12 +427,13 @@ void setup() {
   #endif
   
   #ifdef ENABLE_LCD
+  lcd.clear();
   lcd.setCursor(0,0);
   lcd.print(F("Starting Tests  "));
   lcd.setCursor(0,1);
   //           100 100 100 %
   //           1234567890123456
-  lcd.print(F("GW  IP1 IP2 LOSS"));
+  //lcd.print(F("GW  IP1 IP2 LOSS"));
   #endif
 
   ICMPPing::setTimeout(ICMP_PING_TIMEOUT);
@@ -455,6 +458,8 @@ void loop() {
   #endif
 
   // Ping and store stats
+  lcd.setCursor(0,1);
+  lcd.print(F("GW  IP1 IP2 LOSS"));
   gatewayPings.setBool( currentPingNum, !doPing(Ethernet.gatewayIP(), 2,1) );
   firstAddrPings.setBool( currentPingNum, !doPing(firstPingAddr, 7,1) );
   secondAddrPings.setBool( currentPingNum, !doPing(secondPingAddr, 11,1) );
@@ -630,6 +635,7 @@ inline void ethernetRenewMaintenance()
     {
       #ifdef ENABLE_LCD
       lcd.print(F(" <!> Renew Fail "));
+      alarm(10000);
       #endif
       
       #ifdef ENABLE_SERIAL
@@ -640,6 +646,7 @@ inline void ethernetRenewMaintenance()
     {
       #ifdef ENABLE_LCD
       lcd.print(F("    Renew OK    "));
+      alarm(1000);
       #endif
       
       #ifdef ENABLE_SERIAL
@@ -650,6 +657,7 @@ inline void ethernetRenewMaintenance()
     {
       #ifdef ENABLE_LCD
       lcd.print(F(" <!> Rebind Fail"));
+      alarm(10000);
       #endif
       
       #ifdef ENABLE_SERIAL
@@ -660,6 +668,7 @@ inline void ethernetRenewMaintenance()
     {
       #ifdef ENABLE_LCD
       lcd.print(F("   Rebind OK    "));
+      alarm(1000);
       #endif
       
       #ifdef ENABLE_SERIAL
@@ -672,6 +681,7 @@ inline void ethernetRenewMaintenance()
       lcd.print(F("Unknown Code    "));
       lcd.setCursor(1,14);
       lcd.print(ethernetStatus);
+      alarm(10000);
       #endif
       
       #ifdef ENABLE_SERIAL
@@ -935,4 +945,31 @@ inline byte getLcdButton()
   {
     return BUTTON_RIGHT;
   }
+}
+
+inline void alarm(int timeMs)
+{
+  long etime=millis();
+
+  analogWrite(LCD_BACKLIGHT_PIN,0);
+  delay(50);
+  analogWrite(LCD_BACKLIGHT_PIN,255);
+  delay(50);
+
+  while(millis()-etime < timeMs)
+  {
+    if(millis() % 100 == 0)
+    {
+      if(millis()/500 % 2 == 0)
+      {
+        analogWrite(LCD_BACKLIGHT_PIN,0);
+      }
+      else
+      {
+        analogWrite(LCD_BACKLIGHT_PIN,255);
+      }
+    }
+  }
+  
+  analogWrite(LCD_BACKLIGHT_PIN,LCD_BACKLIGHT_BRIGHTNESS);
 }
