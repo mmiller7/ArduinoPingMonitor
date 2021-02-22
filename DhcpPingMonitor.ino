@@ -830,6 +830,15 @@ inline void lcdPrintOneDecimal(float value)
 {    
   int firstPart=(int)value;
   int secondPart=round((value-firstPart)*10);
+  
+  //handle case where rounding bumps 0.9 to 1.0
+  if(secondPart > 9)
+  {
+    firstPart++;
+    secondPart=0;
+  }
+
+  //Print it
   lcd.print(firstPart);
   lcd.print(F("."));
   lcd.print(secondPart);
